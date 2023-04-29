@@ -23,8 +23,12 @@ class CtrlbDropout(nn.Module):
 
     def _tensor_to_output(self,tensor):
      
-      output_tensor = torch.zeros(tensor.shape).to(device)
-      output_tensor[tensor < self._p] = 1
+    #   output_tensor = torch.zeros(tensor.shape).to(device)
+    #   output_tensor[tensor < self._p] = 1
+    
+      output_tensor = torch.ones(tensor.shape).to(device)
+      _, idx = torch.topk(tensor, int(self._p*tensor.shape[1])+1,dim = 1, sorted=False)
+      output_tensor = output_tensor.scatter(dim=1, index=idx, value=0)
       return output_tensor
     
     
@@ -90,15 +94,24 @@ class Net(nn.Module):
         #                          nn.Linear(100,10),
         #                          CtrlbDropout(0.1)                          
         #                         )
+        # self.nn = nn.Sequential (nn.Linear(28*28,300),                                                                 
+        #                          nn.ReLU(),
+        #                          CtrlbDropout(0.003),                                 
+        #                          nn.Linear(300,100),
+        #                          nn.ReLU(),
+        #                          CtrlbDropout(0.01),                                 
+        #                          nn.Linear(100,10),
+        #                          CtrlbDropout(0.1)                          
+        #                         )        
         self.nn = nn.Sequential (nn.Linear(28*28,300),                                                                 
-                                 nn.ReLU(),
-                                 CtrlbDropout(0.003),                                 
-                                 nn.Linear(300,100),
-                                 nn.ReLU(),
-                                 CtrlbDropout(0.01),                                 
-                                 nn.Linear(100,10),
-                                 CtrlbDropout(0.1)                          
-                                )        
+                            nn.ReLU(),
+                            CtrlbDropout(0.2),                                 
+                            nn.Linear(300,100),
+                            nn.ReLU(),
+                            CtrlbDropout(0.2),                                 
+                            nn.Linear(100,10),
+                            CtrlbDropout(0.2)                          
+                        )     
         _kaiming_init(self.nn)
 
     def forward(self, x):
@@ -164,17 +177,16 @@ def singular_values(act):
 
 
 if __name__ == "__main__":
-    n_epochs = 89
+    n_epochs = 10
     batch_size_train = 32
     batch_size_test = 1000
-    learning_rate = 0.001
-    momentum = 0.5
-    log_interval = 10
+    learning_rate = 0.01
+    log_interval = 50
     random_seed = 1
 
     training = False
     saveModel = True
-    modelPath = "models/model.pth"
+    modelPath = "models/model2.pth"
 
 
     # torch.backends.cudnn.enabled = False
@@ -216,7 +228,7 @@ if __name__ == "__main__":
             test()
         
         if saveModel:
-          torch.save(optimizer.state_dict(), modelPath)
+          torch.save(network.state_dict(), modelPath)
     else:
         vanila_nn = Net().to(device)
         network2 = Net().to(device)
@@ -224,7 +236,7 @@ if __name__ == "__main__":
         network2.eval()
 
         vanila_nn.load_state_dict(torch.load('models/model_vanilla.pth'))
-        network2.load_state_dict(torch.load('models/model.pth'))
+        network2.load_state_dict(torch.load('models/model2.pth'))
 
 
         examples = enumerate(test_loader)
