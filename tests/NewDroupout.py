@@ -38,12 +38,30 @@ class CtrlbDropout(nn.Module):
     def _assembleCtrlb(self,x):
       g = x**2
       orderedS = torch.abs(g)**0.5
+      
+     
+
+
+
+
+      
+
+
+
+      
 
     #   max_vals, idx = torch.topk(orderedS, math.ceil(self._p*orderedS.shape[1]),dim = 1, sorted=False)
     #   m = torch.mean(max_vals,dim=1).unsqueeze(1)
     #   prob = torch.clamp(orderedS/(m),0,1)
 
-      prob = (orderedS/(torch.max(orderedS,dim=1)[0].unsqueeze(1)))-0.05
+      prob = (orderedS/(torch.max(orderedS,dim=1)[0].unsqueeze(1)))
+      top_half, top_idx = torch.topk(prob, math.floor(0.1*prob.shape[1]),dim = 1, largest=True, sorted=False)
+      btm_half, btm_idx = torch.topk(prob, math.floor(0.1*prob.shape[1]),dim = 1, largest=False,sorted=False)
+      scalling = prob.gather(1,top_idx) - (prob.gather(1,top_idx) - prob.gather(1,btm_idx))
+
+
+      prob = prob.scatter(1, top_idx, scalling)
+
       prob = torch.clamp(prob,0,1)
 
       
@@ -126,10 +144,10 @@ class Net(nn.Module):
         #                         )        
         self.nn = nn.Sequential (nn.Linear(28*28,100),                                                                 
                             nn.ReLU(),
-                            CtrlbDropout(0.2),                                  
+                            # CtrlbDropout(0.2),                                  
                             nn.Linear(100,100),
                             nn.ReLU(),
-                            CtrlbDropout(0.2),                                 
+                            # CtrlbDropout(0.2),                                 
                             nn.Linear(100,10),
                             # CtrlbDropout(0.2)                          
                         )     
@@ -207,8 +225,8 @@ def singular_values(act):
 
 
 if __name__ == "__main__":
-    n_epochs = 50
-    batch_size_train = 32
+    n_epochs = 100
+    batch_size_train = 128
     batch_size_test = 1000
     learning_rate = 0.001
     log_interval = 100
