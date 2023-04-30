@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 from scipy.stats import norm
 import statistics
-
+import math
 
 device = torch.device('cuda:' + str(0) if torch.cuda.is_available() else 'cpu')
 
@@ -20,21 +20,33 @@ class CtrlbDropout(nn.Module):
         super(CtrlbDropout, self).__init__()       
         self._p = p
         self._active = active
+        self._iter = 1
+        self.drops = 0
 
     def _tensor_to_output(self,tensor):
      
     #   output_tensor = torch.zeros(tensor.shape).to(device)
     #   output_tensor[tensor < self._p] = 1
     
-      output_tensor = torch.ones(tensor.shape).to(device)
-      _, idx = torch.topk(tensor, int(self._p*tensor.shape[1])+1,dim = 1, sorted=False)
-      output_tensor = output_tensor.scatter(dim=1, index=idx, value=0)
-      return output_tensor
+    #   output_tensor = torch.ones(tensor.shape).to(device)
+    #   _, idx = torch.topk(tensor, int(self._p*tensor.shape[1])+1,dim = 1, sorted=False)
+    #   output_tensor = output_tensor.scatter(dim=1, index=idx, value=0)
+
+      return torch.bernoulli(1-tensor)
     
     
     def _assembleCtrlb(self,x):
       g = x**2
       orderedS = torch.abs(g)**0.5
+
+    #   max_vals, idx = torch.topk(orderedS, math.ceil(self._p*orderedS.shape[1]),dim = 1, sorted=False)
+    #   m = torch.mean(max_vals,dim=1).unsqueeze(1)
+    #   prob = torch.clamp(orderedS/(m),0,1)
+
+      prob = (orderedS/(torch.max(orderedS,dim=1)[0].unsqueeze(1)))-0.05
+      prob = torch.clamp(prob,0,1)
+
+      
       
       # g = torch.diag_embed(x).to(device)      
       # r = torch.svd(g,compute_uv=True)
@@ -48,7 +60,10 @@ class CtrlbDropout(nn.Module):
       # su = r.U*r.S
       # prob = torch.softmax(orderedS,1)
       # prob = torch.exp(-orderedS/torch.max(orderedS))
-      prob = torch.softmax(-orderedS/torch.max(orderedS),1)
+    #   prob = torch.softmax(-orderedS/torch.max(orderedS),1)
+
+
+
 
       #  u, s, v  = svd(x)
       #  prob = torch.softmax(s,1)
@@ -60,8 +75,14 @@ class CtrlbDropout(nn.Module):
       
       with torch.no_grad():
          drop = self._assembleCtrlb(x)
-
+         self.drops = (self.drops + (torch.mean((torch.sum(drop, dim=1)/drop.shape[1])))) / 2.0
+        #  print (self.drops,"\t",  torch.mean((torch.sum(drop, dim=1)/drop.shape[1])))
+         
+        #  self.drops /= self._iter
+         self._iter += 1.0
       return x*drop
+
+
 
 
 class Net(nn.Module):
@@ -75,14 +96,14 @@ class Net(nn.Module):
                 elif 'bias' in name:
                     param.data.fill_(0.0)
           
-        # self.nn = nn.Sequential (nn.Linear(28*28,300),                                                                 
+        # self.nn = nn.Sequential (nn.Linear(28*28,100),                                                                 
         #                          nn.ReLU(),
         #                          nn.Dropout(p=0.2),                                 
-        #                          nn.Linear(300,100),
+        #                          nn.Linear(100,100),
         #                          nn.ReLU(),
-        #                          nn.Dropout(p=0.2),
+        #                          nn.Dropout(p=0.1),
         #                          nn.Linear(100,10),
-        #                          nn.Dropout(p=0.2)
+        #                         #  nn.Dropout(p=0.2)
         #                    )
 
         # self.nn = nn.Sequential (nn.Linear(28*28,300),                                                                 
@@ -103,15 +124,16 @@ class Net(nn.Module):
         #                          nn.Linear(100,10),
         #                          CtrlbDropout(0.1)                          
         #                         )        
-        self.nn = nn.Sequential (nn.Linear(28*28,300),                                                                 
+        self.nn = nn.Sequential (nn.Linear(28*28,100),                                                                 
                             nn.ReLU(),
-                            CtrlbDropout(0.2),                                 
-                            nn.Linear(300,100),
+                            CtrlbDropout(0.2),                                  
+                            nn.Linear(100,100),
                             nn.ReLU(),
                             CtrlbDropout(0.2),                                 
                             nn.Linear(100,10),
-                            CtrlbDropout(0.2)                          
+                            # CtrlbDropout(0.2)                          
                         )     
+
         _kaiming_init(self.nn)
 
     def forward(self, x):
@@ -136,13 +158,13 @@ def train(epoch):
       train_losses.append(loss.item())
       train_counter.append(
         (batch_idx*64) + ((epoch-1)*len(train_loader.dataset)))
+      get_drops(network.nn)
   # torch.save(network.state_dict(), '/results/model_higher_dp_value.pth')
   # torch.save(optimizer.state_dict(), '/results/optimizer.pth')
 
 
 
 def test():
-  
   network.eval()
   test_loss = 0
   correct = 0
@@ -158,6 +180,14 @@ def test():
   print('\nTest set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.000f}%)\n'.format(
     test_loss, correct, len(test_loader.dataset),
     100. * correct / len(test_loader.dataset)))
+
+
+def get_drops(net):
+    for layer in net:        
+        if hasattr(layer,'drops'):
+           print(f"drops: {layer.drops}")
+        # activations.append(x)
+    # return activations
 
 
 def get_activations(net, x):
@@ -177,14 +207,14 @@ def singular_values(act):
 
 
 if __name__ == "__main__":
-    n_epochs = 10
+    n_epochs = 50
     batch_size_train = 32
     batch_size_test = 1000
-    learning_rate = 0.01
-    log_interval = 50
-    random_seed = 1
+    learning_rate = 0.001
+    log_interval = 100
+    random_seed = 25
 
-    training = False
+    training = True
     saveModel = True
     modelPath = "models/model2.pth"
 
@@ -225,7 +255,9 @@ if __name__ == "__main__":
 
         for epoch in range(1, n_epochs + 1):
             train(epoch)
+            
             test()
+            
         
         if saveModel:
           torch.save(network.state_dict(), modelPath)
@@ -251,6 +283,20 @@ if __name__ == "__main__":
             plt.yticks([])
         plt.show()
 
+
+        with torch.no_grad():
+            output = network2(example_data.to(device))
+
+        fig = plt.figure()
+        for i in range(6):
+            plt.subplot(2,3,i+1)
+            plt.tight_layout()
+            plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
+            plt.title("Prediction: {}".format(output.data.max(1, keepdim=True)[1][i].item()))
+            plt.xticks([])
+            plt.yticks([])
+
+        plt.show()
 
 
         for k in range(5):
